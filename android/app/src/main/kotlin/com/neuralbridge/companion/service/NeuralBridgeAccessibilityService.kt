@@ -178,7 +178,10 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             // Android 14+: must specify foreground service type matching manifest declaration
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            // SPECIAL_USE + MEDIA_PROJECTION required for MediaProjection.createVirtualDisplay()
+            val fgsType = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
+                          ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            startForeground(NOTIFICATION_ID, notification, fgsType)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
@@ -518,7 +521,8 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
         @Suppress("DEPRECATION")
         stopForeground(true)
         mcpHttpServer?.releaseScreenWakeLock()
-        serviceScope.launch {
+        // Stop MCP server synchronously to avoid race condition on port 7474
+        runBlocking(Dispatchers.IO) {
             mcpHttpServer?.stop()
             mcpHttpServer = null
         }
