@@ -22,12 +22,20 @@ jobs:
         env:
           ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
 
-      - name: ☕ Instalar JDK 17
+      - name: ☕ Instalar JDK 17 + Gradle
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq openjdk-17-jdk unzip wget 2>&1 | tail -3
+          sudo apt-get install -y -qq openjdk-17-jdk gradle unzip wget 2>&1 | tail -3
           java -version 2>&1 | head -1
-          echo "✅ JDK 17 instalado"
+          gradle --version 2>&1 | head -3
+          echo "✅ JDK + Gradle instalados"
+
+      - name: 🔧 Gerar Gradle Wrapper (jar)
+        run: |
+          cd android
+          gradle wrapper --gradle-version 8.13
+          ls -la gradle/wrapper/
+          echo "✅ Wrapper gerado"
 
       - name: 📱 Instalar Android SDK
         run: |
@@ -37,25 +45,22 @@ jobs:
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
           unzip -q commandlinetools-linux-11076708_latest.zip
           mv cmdline-tools $ANDROID_HOME/cmdline-tools/latest
-          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
 
-      - name: 📦 SDK components (shell)
+      - name: 📦 SDK components
         run: |
           yes | sdkmanager --sdk_root=$ANDROID_HOME "platforms;android-34"
           yes | sdkmanager --sdk_root=$ANDROID_HOME "build-tools;34.0.0"
           yes | sdkmanager --sdk_root=$ANDROID_HOME "ndk;27.0.12077973"
           yes | sdkmanager --sdk_root=$ANDROID_HOME "cmake;3.22.1"
-          echo "✅ SDK instalado em $ANDROID_HOME"
+          echo "✅ SDK instalado"
 
       - name: 🏗️ Build APK (${{ inputs.build_mode }})
         run: |
           export ANDROID_HOME=$HOME/android-sdk
-          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
           export ANDROID_SDK_ROOT=$ANDROID_HOME
           cd android
-          chmod +x gradlew
           if [ "${{ inputs.build_mode }}" = "release" ]; then
             ./gradlew assembleRelease
           else
@@ -63,20 +68,14 @@ jobs:
           fi
           echo "✅ Build concluído"
 
-      - name: 📤 Upload APK (shell)
-        run: |
-          mkdir -p /tmp/artifacts
-          cp -v android/app/build/outputs/apk/debug/*.apk /tmp/artifacts/ 2>/dev/null || true
-          cp -v android/app/build/outputs/apk/release/*.apk /tmp/artifacts/ 2>/dev/null || true
-          ls -lh /tmp/artifacts/
-          echo "✅ APK pronto para upload"
-
-      - name: 📎 Publicar APK como artifact
+      - name: 📎 Publicar APK
         uses: actions/upload-artifact@v4
         env:
           ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
         with:
           name: NeuralBridge-APK-${{ inputs.build_mode }}
-          path: /tmp/artifacts/*.apk
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 30
