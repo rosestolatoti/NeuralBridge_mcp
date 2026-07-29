@@ -17,20 +17,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Sem usar actions de Node - tudo via shell
-      - name: 📥 Checkout (shell)
-        run: |
-          git clone https://github.com/rosestolatoti/NeuralBridge_mcp.git .
-          echo "✅ Checkout concluído"
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+        env:
+          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
 
-      - name: ☕ Instalar JDK 17 (shell)
+      - name: ☕ Instalar JDK 17
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq openjdk-17-jdk unzip wget 2>&1 | tail -3
           java -version 2>&1 | head -1
           echo "✅ JDK 17 instalado"
 
-      - name: 📱 Instalar Android SDK (shell)
+      - name: 📱 Instalar Android SDK
         run: |
           export ANDROID_HOME=$HOME/android-sdk
           mkdir -p $ANDROID_HOME/cmdline-tools
@@ -74,6 +73,8 @@ jobs:
 
       - name: 📎 Publicar APK como artifact
         uses: actions/upload-artifact@v4
+        env:
+          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
         with:
           name: NeuralBridge-APK-${{ inputs.build_mode }}
           path: /tmp/artifacts/*.apk
