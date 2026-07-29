@@ -257,7 +257,13 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
             return
         }
 
-        if (!com.neuralbridge.companion.screenshot.ScreenshotConsentActivity.hasConsentResult()) return
+        if (screenshotPipeline.tryConsumePreCreatedProjection()) {
+            Log.i(TAG, "MediaProjection granted from pre-created projection (via tryConsumeMediaProjectionConsent)")
+            updateNotificationForFastScreenshots()
+            return
+        }
+
+        // Fallback: tenta via método assíncrono (pode disparar novo diálogo se necessário)
         serviceScope.launch {
             val granted = screenshotPipeline.tryConsumePendingConsent()
             if (granted) {

@@ -1,14 +1,12 @@
 package com.neuralbridge.companion.screenshot
 
 import android.accessibilityservice.AccessibilityService
-import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
 import android.media.projection.MediaProjection
-import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -143,24 +141,8 @@ class ScreenshotPipeline(
      * @return true if a pending result was consumed and MediaProjection was created
      */
     suspend fun tryConsumePendingConsent(): Boolean {
-        // FIX: Primeiro tenta consumir projeção pré-criada (caminho mais rápido)
-        if (tryConsumePreCreatedProjection()) return true
-
-        if (!ScreenshotConsentActivity.hasConsentResult()) return false
-        val result = ScreenshotConsentActivity.consumeConsentResult() ?: return false
-        val (resultCode, resultData) = result
-        if (resultCode != Activity.RESULT_OK || resultData == null) return false
-        return try {
-            val manager = accessibilityService.getSystemService(MediaProjectionManager::class.java)
-            val projection = manager.getMediaProjection(resultCode, resultData)
-            registerCallback(projection)
-            mediaProjection = projection
-            Log.i(TAG, "MediaProjection permission granted from pending consent")
-            true
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to create MediaProjection from pending consent: ${e.message}")
-            false
-        }
+        // FIX: Tenta consumir projeção pré-criada (via ScreenshotConsentActivity)
+        return tryConsumePreCreatedProjection()
     }
 
     /**
@@ -422,31 +404,13 @@ class ScreenshotPipeline(
                 val maxAttempts = 100 // 10 seconds timeout (100 * 100ms)
 
                 while (attempts < maxAttempts) {
-                    if (ScreenshotConsentActivity.hasConsentResult()) {
-                        val result = ScreenshotConsentActivity.consumeConsentResult()
+                    // FIX: Usa nova API de projeção pré-criada
+                    if (ScreenshotConsentActivity.hasProjection()) {
+                        val projection = ScreenshotConsentActivity.consumeProjection()
 
-                        if (result != null) {
-                            val (resultCode, resultData) = result
-
-                            if (resultCode == Activity.RESULT_OK && resultData != null) {
-                                try {
-                                    // Step 3: Create MediaProjection from consent result
-                                    val mediaProjectionManager = accessibilityService.getSystemService(
-                                        MediaProjectionManager::class.java
-                                    )
-                                    val projection = mediaProjectionManager.getMediaProjection(resultCode, resultData)
-
-                                    Log.i(TAG, "MediaProjection initialized successfully")
-                                    continuation.resume(projection)
-                                } catch (e: Exception) {
-                                    Log.e(TAG, "Failed to create MediaProjection", e)
-                                    continuation.resumeWithException(e)
-                                }
-                            } else {
-                                val error = Exception("MediaProjection consent denied by user")
-                                Log.w(TAG, error.message.orEmpty())
-                                continuation.resumeWithException(error)
-                            }
+                        if (projection != null) {
+                            Log.i(TAG, "MediaProjection initialized successfully (pre-created)")
+                            continuation.resume(projection)
                         } else {
                             val error = Exception("MediaProjection consent result is null")
                             Log.e(TAG, error.message.orEmpty())
