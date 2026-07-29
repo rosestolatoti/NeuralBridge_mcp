@@ -3,27 +3,21 @@ package com.neuralbridge.companion.screenshot
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.util.Log
+import com.neuralbridge.companion.service.NeuralBridgeAccessibilityService
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Screenshot Consent Activity
  *
  * Transparent Activity that handles MediaProjection user consent dialog.
- * This Activity is launched when MediaProjection needs user permission,
- * displays the system consent dialog, and stores the result for ScreenshotPipeline.
  *
- * Usage:
- * 1. ScreenshotPipeline calls startActivityForResult() with consent intent
- * 2. System shows "Start capturing everything on your screen?" dialog
- * 3. User taps "Start now"
- * 4. This Activity receives result and stores it in MediaProjectionManager
- * 5. ScreenshotPipeline creates MediaProjection from stored result
- *
- * Note: On Android 14+, consent is single-use and must be re-requested
- * after app restart or device reboot.
+ * FIX: Agora CRIA o MediaProjection imediatamente no onActivityResult e
+ * armazena em pendingProjection, além de notificar o Service se ele já
+ * estiver rodando. Isso elimina a dependência de polling/timing.
  */
 class ScreenshotConsentActivity : Activity() {
 
@@ -34,31 +28,35 @@ class ScreenshotConsentActivity : Activity() {
         // Prevents two concurrent instances from both showing the system dialog
         private val isConsentInProgress = AtomicBoolean(false)
 
-        // Shared result storage (since we can't directly pass result between components)
+        // FIX: MediaProjection já criado, disponível pra consumo imediato
         @Volatile
-        private var pendingResultCode: Int? = null
-
-        @Volatile
-        private var pendingResultData: Intent? = null
+        private var pendingProjection: MediaProjection? = null
 
         /**
-         * Check if consent result is available
+         * Check if a MediaProjection is available (already created).
+         * Pode ser chamado mesmo sem o Service estar rodando.
          */
-        fun hasConsentResult(): Boolean {
-            return pendingResultCode != null
+        fun hasProjection(): Boolean {
+            return pendingProjection != null
         }
 
         /**
-         * Get consent result and clear it (thread-safe — only one caller wins).
-         * @return Pair of (resultCode, resultData) or null if not available
+         * Consume the pending MediaProjection (thread-safe — only one caller wins).
+         * @return The MediaProjection instance, or null
          */
         @Synchronized
-        fun consumeConsentResult(): Pair<Int, Intent?>? {
-            val code = pendingResultCode ?: return null
-            val data = pendingResultData
-            pendingResultCode = null
-            pendingResultData = null
-            return Pair(code, data)
+        fun consumeProjection(): MediaProjection? {
+            val proj = pendingProjection
+            pendingProjection = null
+            return proj
+        }
+
+        /**
+         * Queried by MainActivity.updateAllPermissionStatus()
+         * Retorna true se há projeção disponível (já concedida)
+         */
+        fun isPermissionGranted(): Boolean {
+            return pendingProjection != null
         }
 
         /**
@@ -66,7 +64,6 @@ class ScreenshotConsentActivity : Activity() {
          */
         fun createIntent(context: Context): Intent {
             return Intent(context, ScreenshotConsentActivity::class.java).apply {
-                // Launch as new task (since we're starting from Service context)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
         }
@@ -75,9 +72,6 @@ class ScreenshotConsentActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // If another instance is already showing the dialog, bail immediately.
-        // This prevents double-popups when the service auto-request and the
-        // Setup tab GRANT button fire at the same time.
         if (!isConsentInProgress.compareAndSet(false, true)) {
             Log.d(TAG, "Consent already in progress — dismissing duplicate")
             finish()
@@ -86,7 +80,6 @@ class ScreenshotConsentActivity : Activity() {
 
         Log.d(TAG, "ScreenshotConsentActivity created")
 
-        // Request MediaProjection consent
         val mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val intent = mediaProjectionManager.createScreenCaptureIntent()
 
@@ -100,30 +93,47 @@ class ScreenshotConsentActivity : Activity() {
             Log.d(TAG, "MediaProjection consent result: resultCode=$resultCode")
 
             if (resultCode == RESULT_OK && data != null) {
-                // Store result for ScreenshotPipeline to consume
-                pendingResultCode = resultCode
-                pendingResultData = data
+                // FIX: Cria o MediaProjection IMEDIATAMENTE, aqui e agora
+                try {
+                    val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                    val projection = manager.getMediaProjection(resultCode, data)
 
-                Log.i(TAG, "MediaProjection consent granted")
+                    // Registra callback pra detectar quando a sessão morrer
+                    projection.registerCallback(object : MediaProjection.Callback() {
+                        override fun onStop() {
+                            Log.w(TAG, "MediaProjection session stopped by system")
+                            // Se a sessão morrer, limpa a referência
+                            if (pendingProjection == projection) {
+                                pendingProjection = null
+                            }
+                        }
+                    }, null)
+
+                    pendingProjection = projection
+
+                    // Notifica o Service se ele já estiver rodando
+                    val service = NeuralBridgeAccessibilityService.instance
+                    if (service != null) {
+                        service.onMediaProjectionGranted(projection)
+                        Log.i(TAG, "MediaProjection created and passed to running service")
+                    } else {
+                        Log.i(TAG, "MediaProjection created and stored — service will pick it up when it starts")
+                    }
+
+                    Log.i(TAG, "MediaProjection consent granted and projection created")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to create MediaProjection", e)
+                }
             } else {
                 Log.w(TAG, "MediaProjection consent denied or cancelled")
-
-                // Store failure result
-                pendingResultCode = resultCode
-                pendingResultData = null
             }
         }
 
-        // Allow future consent requests
         isConsentInProgress.set(false)
-
-        // Close this Activity
         finish()
     }
 
     override fun onDestroy() {
-        // Reset the gate so future consent requests are not permanently blocked
-        // if this activity is killed before onActivityResult fires
         isConsentInProgress.set(false)
         super.onDestroy()
     }

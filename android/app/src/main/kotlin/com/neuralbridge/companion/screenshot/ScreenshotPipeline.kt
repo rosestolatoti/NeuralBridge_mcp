@@ -104,6 +104,36 @@ class ScreenshotPipeline(
     }
 
     /**
+     * FIX: Recebe um MediaProjection já criado pelo ScreenshotConsentActivity.
+     * Isso elimina a janela de race condition entre o Activity e o Service.
+     */
+    fun setMediaProjection(projection: MediaProjection) {
+        registerCallback(projection)
+        mediaProjection = projection
+        Log.i(TAG, "MediaProjection set from pre-created projection")
+    }
+
+    /**
+     * FIX: Tenta consumir uma projeção pré-criada armazenada no
+     * ScreenshotConsentActivity. Pode ser chamado a qualquer momento,
+     * inclusive antes do serviço estar rodando.
+     *
+     * @return true se uma projeção foi consumida
+     */
+    fun tryConsumePreCreatedProjection(): Boolean {
+        if (!ScreenshotConsentActivity.hasProjection()) return false
+        val projection = ScreenshotConsentActivity.consumeProjection() ?: return false
+        return try {
+            setMediaProjection(projection)
+            Log.i(TAG, "MediaProjection consumed from pre-created projection")
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to consume pre-created projection: ${e.message}")
+            false
+        }
+    }
+
+    /**
      * Consume a pending consent result without launching the consent activity.
      *
      * Used by tryConsumeMediaProjectionConsent() after MainActivity.onResume() to avoid
@@ -113,6 +143,9 @@ class ScreenshotPipeline(
      * @return true if a pending result was consumed and MediaProjection was created
      */
     suspend fun tryConsumePendingConsent(): Boolean {
+        // FIX: Primeiro tenta consumir projeção pré-criada (caminho mais rápido)
+        if (tryConsumePreCreatedProjection()) return true
+
         if (!ScreenshotConsentActivity.hasConsentResult()) return false
         val result = ScreenshotConsentActivity.consumeConsentResult() ?: return false
         val (resultCode, resultData) = result

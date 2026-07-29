@@ -187,6 +187,18 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
     }
 
     /**
+     * FIX: Recebe um MediaProjection já criado pelo ScreenshotConsentActivity.
+     * Chamado diretamente pela Activity após o usuário conceder permissão.
+     */
+    fun onMediaProjectionGranted(projection: android.media.projection.MediaProjection) {
+        if (::screenshotPipeline.isInitialized) {
+            screenshotPipeline.setMediaProjection(projection)
+            Log.i(TAG, "MediaProjection received from ScreenshotConsentActivity")
+            updateNotificationForFastScreenshots()
+        }
+    }
+
+    /**
      * Request MediaProjection permission for fast screenshot capture
      *
      * This is called on service startup to pre-request permission so that
@@ -194,11 +206,22 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
      *
      * On Android 14+, this permission is single-use and expires when the
      * app process is killed or device restarts.
+     *
+     * FIX: Antes de pedir permissão, tenta consumir uma projeção pré-criada
+     * que pode ter sido armazenada pelo ScreenshotConsentActivity mesmo antes
+     * do Service estar rodando.
      */
     private fun requestMediaProjectionPermission() {
         // Check if already granted
         if (screenshotPipeline.hasMediaProjectionPermission()) {
             Log.i(TAG, "MediaProjection permission already granted")
+            return
+        }
+
+        // FIX: Tenta consumir projeção pré-criada antes de pedir nova
+        if (screenshotPipeline.tryConsumePreCreatedProjection()) {
+            Log.i(TAG, "MediaProjection obtained from pre-created projection (granted before service start)")
+            updateNotificationForFastScreenshots()
             return
         }
 
@@ -221,13 +244,19 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
      * Try to consume any pending MediaProjection consent result.
      * Called from MainActivity.onResume() after user grants consent via Setup tab.
      *
-     * Deliberately calls tryConsumePendingConsent() rather than requestMediaProjectionPermission()
-     * to avoid re-launching ScreenshotConsentActivity. When onResume() fires after the user
-     * accepts the auto-prompted dialog, the service's polling loop may not have consumed the
-     * result yet — calling requestMediaProjectionPermission() would show the popup a second time.
+     * FIX: Agora também tenta consumir projeção pré-criada (que funciona
+     * independente do service estar rodando ou não).
      */
     fun tryConsumeMediaProjectionConsent() {
         if (screenshotPipeline.hasMediaProjectionPermission()) return
+
+        // FIX: Tenta consumir projeção pré-criada primeiro
+        if (screenshotPipeline.tryConsumePreCreatedProjection()) {
+            Log.i(TAG, "MediaProjection granted from pre-created projection (via onResume)")
+            updateNotificationForFastScreenshots()
+            return
+        }
+
         if (!com.neuralbridge.companion.screenshot.ScreenshotConsentActivity.hasConsentResult()) return
         serviceScope.launch {
             val granted = screenshotPipeline.tryConsumePendingConsent()

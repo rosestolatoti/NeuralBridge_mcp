@@ -116,7 +116,19 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        NeuralBridgeAccessibilityService.instance?.tryConsumeMediaProjectionConsent()
+
+        // FIX: Tenta consumir projeção pré-criada mesmo sem o service
+        // Se o service já estiver rodando, tenta via ele também
+        val service = NeuralBridgeAccessibilityService.instance
+        if (service != null) {
+            service.tryConsumeMediaProjectionConsent()
+        } else {
+            // Tenta consumir direto da ScreenshotConsentActivity (projeção estática)
+            if (com.neuralbridge.companion.screenshot.ScreenshotConsentActivity.hasProjection()) {
+                Log.d("MainActivity", "MediaProjection available but service not running yet")
+            }
+        }
+
         updateAllPermissionStatus()
         statusHandler.post(statusRunnable)
     }
@@ -371,12 +383,16 @@ class MainActivity : Activity() {
     }
 
     private fun updateAllPermissionStatus() {
+        // FIX: Fallback para quando o service ainda não está rodando
+        val mediaProjectionGranted = NeuralBridgeAccessibilityService.instance?.hasMediaProjectionPermission()
+            ?: com.neuralbridge.companion.screenshot.ScreenshotConsentActivity.isPermissionGranted()
+
         val statuses = buildList {
             add(isAccessibilityServiceEnabled())
             add(isNotificationListenerEnabled())
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(isPostNotificationsGranted())
             add(isBatteryOptimizationExempt())
-            add(NeuralBridgeAccessibilityService.instance?.hasMediaProjectionPermission() ?: false)
+            add(mediaProjectionGranted)
         }
 
         val granted = statuses.count { it }
