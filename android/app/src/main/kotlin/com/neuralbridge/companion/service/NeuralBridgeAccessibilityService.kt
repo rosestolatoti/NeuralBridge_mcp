@@ -136,7 +136,7 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
         // Apenas loga e segue usando AccessibilityService.takeScreenshot().
         screenshotPipeline.onMediaProjectionLost = {
             Log.i(TAG, "MediaProjection lost — using optimized AccessibilityService fallback")
-            updateNotificationForFallbackMode()
+            updateNotificationForSlowScreenshots()
         }
 
         Log.d(TAG, "Core components initialized")

@@ -257,6 +257,14 @@ class ScreenshotPipeline(
                     hotCache = HotCacheEntry(jpegBytes, System.currentTimeMillis())
 
                     jpegBytes
+                } catch (fallbackError: Exception) {
+                    Log.e(TAG, "AccessibilityService fallback also failed", fallbackError)
+                    throw Exception(
+                        "Screenshot failed: MediaProjection unavailable and AccessibilityService " +
+                        "fallback failed. Grant screenshot consent via the system dialog, or " +
+                        "ensure Android 11+ for fallback.",
+                        fallbackError
+                    )
                 }
             }
         }
