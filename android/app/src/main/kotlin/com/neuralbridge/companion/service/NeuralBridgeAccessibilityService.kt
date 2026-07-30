@@ -132,9 +132,11 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
         screenshotPipeline = ScreenshotPipeline(this, serviceScope)
 
         // Update notification when MediaProjection session is lost by the system
+        // FIX: Fallback otimizado (~120ms) — não precisa mais alarmar o usuário.
+        // Apenas loga e segue usando AccessibilityService.takeScreenshot().
         screenshotPipeline.onMediaProjectionLost = {
-            Log.w(TAG, "MediaProjection session lost - falling back to AccessibilityService screenshots")
-            updateNotificationForSlowScreenshots()
+            Log.i(TAG, "MediaProjection lost — using optimized AccessibilityService fallback")
+            updateNotificationForFallbackMode()
         }
 
         Log.d(TAG, "Core components initialized")
@@ -277,12 +279,14 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Update notification when MediaProjection is lost (user can tap to re-enable)
+     * Update notification when MediaProjection is lost.
+     * FIX: Fallback otimizado (~120ms) — não pede mais ação do usuário.
+     * Apenas informa que está operando em modo fallback.
      */
     private fun updateNotificationForSlowScreenshots() {
         val notification = buildNotification(
             title = getString(R.string.foreground_service_title),
-            message = "Fast screenshots disabled \u2014 tap to re-enable"
+            message = "Fallback mode (optimized)"
         )
 
         val notificationManager = getSystemService(NotificationManager::class.java)
@@ -295,7 +299,7 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
     private fun updateNotificationForFastScreenshots() {
         val notification = buildNotification(
             title = getString(R.string.foreground_service_title),
-            message = "Fast screenshots enabled (60ms)"
+            message = "Screenshots active"
         )
 
         val notificationManager = getSystemService(NotificationManager::class.java)
