@@ -1,0 +1,81 @@
+name: 🏗️ Build NeuralBridge APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: 'Modo de build'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+        env:
+          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
+
+      - name: ☕ Instalar JDK 17 + Gradle
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openjdk-17-jdk gradle unzip wget 2>&1 | tail -3
+          java -version 2>&1 | head -1
+          gradle --version 2>&1 | head -3
+          echo "✅ JDK + Gradle instalados"
+
+      - name: 🔧 Gerar Gradle Wrapper (jar)
+        run: |
+          cd android
+          gradle wrapper --gradle-version 8.13
+          ls -la gradle/wrapper/
+          echo "✅ Wrapper gerado"
+
+      - name: 📱 Instalar Android SDK
+        run: |
+          export ANDROID_HOME=$HOME/android-sdk
+          mkdir -p $ANDROID_HOME/cmdline-tools
+          cd /tmp
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q commandlinetools-linux-11076708_latest.zip
+          mv cmdline-tools $ANDROID_HOME/cmdline-tools/latest
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+
+      - name: 📦 SDK components
+        run: |
+          yes | sdkmanager --sdk_root=$ANDROID_HOME "platforms;android-34"
+          yes | sdkmanager --sdk_root=$ANDROID_HOME "build-tools;34.0.0"
+          yes | sdkmanager --sdk_root=$ANDROID_HOME "ndk;27.0.12077973"
+          yes | sdkmanager --sdk_root=$ANDROID_HOME "cmake;3.22.1"
+          echo "✅ SDK instalado"
+
+      - name: 🏗️ Build APK (${{ inputs.build_mode }})
+        run: |
+          export ANDROID_HOME=$HOME/android-sdk
+          export ANDROID_SDK_ROOT=$ANDROID_HOME
+          cd android
+          if [ "${{ inputs.build_mode }}" = "release" ]; then
+            ./gradlew assembleRelease
+          else
+            ./gradlew assembleDebug
+          fi
+          echo "✅ Build concluído"
+
+      - name: 📎 Publicar APK
+        uses: actions/upload-artifact@v4
+        env:
+          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
+        with:
+          name: NeuralBridge-APK-${{ inputs.build_mode }}
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
