@@ -79,6 +79,7 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
 
     // Event streaming state
     private val eventsEnabled = AtomicBoolean(false)
+    private val mediaProjectionFgsUpgraded = AtomicBoolean(false)
     private val lastEventTime = AtomicLong(0)
 
     // Track service start time
@@ -136,6 +137,7 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
         // Apenas loga e segue usando AccessibilityService.takeScreenshot().
         screenshotPipeline.onMediaProjectionLost = {
             Log.i(TAG, "MediaProjection lost — using optimized AccessibilityService fallback")
+            mediaProjectionFgsUpgraded.set(false)
             updateNotificationForSlowScreenshots()
         }
 
@@ -179,16 +181,36 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            // Android 14+: must specify foreground service type matching manifest declaration
-            // SPECIAL_USE + MEDIA_PROJECTION required for MediaProjection.createVirtualDisplay()
-            val fgsType = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
-                          ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            startForeground(NOTIFICATION_ID, notification, fgsType)
+            // Android 14+: start com SPECIAL_USE APENAS. O tipo MEDIA_PROJECTION e
+            // adicionado DEPOIS via upgradeForegroundServiceForMediaProjection()
+            // (so apos o usuario conceder consentimento) - Android 14 exige isso.
+            startForeground(NOTIFICATION_ID, notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
 
         Log.d(TAG, "Foreground service started")
+    }
+
+    /**
+     * Upgrade foreground service to include MEDIA_PROJECTION type.
+     * Chamado apos o consentimento do usuario (PR #2 fix).
+     */
+    fun upgradeForegroundServiceForMediaProjection() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
+        if (!mediaProjectionFgsUpgraded.compareAndSet(false, true)) return
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification(
+                title = getString(R.string.foreground_service_title),
+                message = "Fast screenshots enabled"
+            ), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
+               ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+            Log.i(TAG, "Foreground service upgraded with MEDIA_PROJECTION type")
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Cannot upgrade to MEDIA_PROJECTION FGS (OEM restriction), fallback")
+            mediaProjectionFgsUpgraded.set(false)
+        }
     }
 
     /**
@@ -421,6 +443,7 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
         // Clear static instance
         instance = null
 
+        mediaProjectionFgsUpgraded.set(false)
         super.onDestroy()
     }
 

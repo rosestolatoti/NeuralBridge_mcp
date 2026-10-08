@@ -95,6 +95,9 @@ class ScreenshotConsentActivity : Activity() {
             if (resultCode == RESULT_OK && data != null) {
                 // FIX: Cria o MediaProjection IMEDIATAMENTE, aqui e agora
                 try {
+                    // PR#2: no Android 14+ o tipo FGS precisa incluir MEDIA_PROJECTION ANTES
+                    // de getMediaProjection() — service-side upgrade com guard AtomicBoolean.
+                    NeuralBridgeAccessibilityService.instance?.upgradeForegroundServiceForMediaProjection()
                     val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                     val projection = manager.getMediaProjection(resultCode, data)
 
